@@ -142,7 +142,7 @@ def evaluate_bound(
     num_clbits: int | None = None,
 ) -> EnergyResult:
     if num_clbits is None:
-        num_clbits = _infer_num_clbits(bound_operations)
+        num_clbits = infer_num_clbits(bound_operations, postselection)
     branches = simulate_branches(list(bound_operations), num_qubits, num_clbits)
     return evaluate_branches(num_qubits, branches, terms, postselection)
 
@@ -155,6 +155,16 @@ def _infer_num_clbits(bound_operations: Sequence) -> int:
         if operation.condition_clbit is not None:
             clbits.append(operation.condition_clbit)
     return max(clbits) + 1
+
+
+def infer_num_clbits(
+    bound_operations: Sequence, postselection: Mapping[int, int] | None = None
+) -> int:
+    """Infer a register wide enough for operations and any postselection."""
+    inferred = _infer_num_clbits(bound_operations)
+    if postselection:
+        inferred = max(inferred, max(int(clbit) for clbit in postselection) + 1)
+    return inferred
 
 
 def evaluate_branches(

@@ -26,8 +26,12 @@ from .errors import (
     HamiltonianValidationError,
     PostselectionError,
     SamplingError,
+    TomographyError,
     TrainingError,
 )
+from .experiment import TomographyExperiment, simulate_tomography_counts
+from .measurement import pauli_measurement_plan, validate_plan
+from .reconstruction import TomographyResult, reconstruct_density_matrix
 from .results import ExecutionResult
 from .training import IterationRecord, TrainingResult, minimize_energy
 
@@ -45,6 +49,9 @@ __all__ = [
     "SamplingError",
     "TrainingError",
     "TrainingResult",
+    "TomographyError",
+    "TomographyExperiment",
+    "TomographyResult",
     "bind_parameters",
     "energy",
     "evaluate_branches",
@@ -59,4 +66,8 @@ __all__ = [
     "validate_postselection",
     "validate_template",
     "minimize_energy",
+    "pauli_measurement_plan",
+    "reconstruct_density_matrix",
+    "simulate_tomography_counts",
+    "validate_plan",
 ]

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quantum-feedback-sdk"
-version = "0.2.0"
+version = "0.3.0"
 requires-python = ">=3.10"
 dependencies = ["numpy==2.2.6"]
 

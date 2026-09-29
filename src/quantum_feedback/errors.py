@@ -19,3 +19,7 @@ class HamiltonianValidationError(ValueError):
 
 class TrainingError(ValueError):
     """Raised when variational training cannot proceed."""
+
+
+class TomographyError(ValueError):
+    """Raised when a tomography plan or count table is invalid."""
