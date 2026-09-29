@@ -120,7 +120,7 @@ def energy(
     terms = validate_hamiltonian(hamiltonian, num_qubits)
     selected = validate_postselection(postselection, num_clbits)
     bound = bind_parameters(template, parameter_values or _required_mapping(template))
-    return evaluate_bound(num_qubits, bound, terms, selected)
+    return evaluate_bound(num_qubits, bound, terms, selected, num_clbits)
 
 
 def _required_mapping(template: Sequence[ParameterizedOperation]) -> dict[str, float]:
