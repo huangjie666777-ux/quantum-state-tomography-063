@@ -20,17 +20,34 @@ class Branch:
 
 def run(num_qubits: int, num_clbits: int, operations: list | tuple) -> ExecutionResult:
     normalized_operations = validate_circuit(num_qubits, num_clbits, operations)
+    return execute(normalized_operations, num_qubits, num_clbits)
+
+
+def execute(
+    operations: list[Operation],
+    num_qubits: int,
+    num_clbits: int,
+) -> ExecutionResult:
+    """Execute an already validated constant operation list."""
+    branches = simulate_branches(operations, num_qubits, num_clbits)
+    dimension = 1 << num_qubits
+    zero_state = np.zeros((dimension, dimension), dtype=complex)
+    quantum_rho = sum((branch.probability * branch.rho for branch in branches), np.zeros_like(zero_state))
+    probabilities = _merge_probabilities(branches, num_clbits)
+    return ExecutionResult(quantum_rho, probabilities, num_qubits, num_clbits)
+
+
+def simulate_branches(
+    operations: list[Operation], num_qubits: int, num_clbits: int
+) -> list[Branch]:
+    """Return normalized classical branches with probabilities and conditional states."""
     dimension = 1 << num_qubits
     rho = np.zeros((dimension, dimension), dtype=complex)
     rho[0, 0] = 1.0
     branches = [Branch(1.0, tuple(0 for _ in range(num_clbits)), rho)]
-
-    for operation in normalized_operations:
+    for operation in operations:
         branches = _execute(branches, operation)
-
-    quantum_rho = sum((branch.probability * branch.rho for branch in branches), np.zeros_like(rho))
-    probabilities = _merge_probabilities(branches, num_clbits)
-    return ExecutionResult(quantum_rho, probabilities, num_qubits, num_clbits)
+    return branches
 
 
 def _execute(branches: list[Branch], operation: Operation) -> list[Branch]:

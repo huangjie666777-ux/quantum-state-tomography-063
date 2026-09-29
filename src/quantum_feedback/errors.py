@@ -7,3 +7,15 @@ class CircuitValidationError(ValueError):
 
 class SamplingError(ValueError):
     """Raised when sampling arguments are invalid."""
+
+
+class PostselectionError(ValueError):
+    """Raised when postselection is invalid or has vanishing success probability."""
+
+
+class HamiltonianValidationError(ValueError):
+    """Raised when an energy objective is invalid."""
+
+
+class TrainingError(ValueError):
+    """Raised when variational training cannot proceed."""

@@ -1,6 +1,6 @@
 # Quantum Feedback SDK
 
-一个可嵌入的小型量子电路模拟 SDK，使用密度矩阵确定性处理测量、经典反馈、reset 和相位翻转噪声，不使用随机轨迹近似。
+一个可嵌入的小型量子电路模拟 SDK，使用密度矩阵确定性处理测量、经典反馈、reset 和相位翻转噪声，不使用随机轨迹近似。0.2 版本新增变分态制备：RZ 角度可绑定命名参数，针对 Pauli 能量目标（支持经典后选）计算确定性期望、精确梯度并进行局部最小化训练。
 
 ## 安装与接口
 
@@ -33,19 +33,71 @@
 
 测量后，模拟器保留带概率的归一化条件密度矩阵分支。后续条件门只作用于匹配的经典分支；不同读数分支不发生相干干涉。只有经典记录完全相同的分支才按概率混合。经典位被覆写后，相同新读数的分支也会按概率混合。
 
+## 变分模板与参数绑定
+
+RZ 角度除常数外还可以是命名参数的缩放加偏移：`scale * param + offset`。
+
+- 简写：`{"op": "RZ", "qubit": q, "angle": "theta"}`。
+- 完整形式：`{"op": "RZ", "qubit": q, "angle": {"param": "theta", "scale": -2.0, "offset": 0.1}}`。
+- `scale` 默认为 1，`offset` 默认为 0；`scale` 必须是非零有限数，因此允许负缩放但不允许退化为常数的零缩放。
+- 同一参数可以出现在任意多个门中（共享参数），每个门都可以有自己的缩放和偏移。
+
+典型流程是：
+
+```python
+template = validate_template(num_qubits, num_clbits, operations)
+bound_operations = bind_parameters(template, {"theta": 0.7})
+result = execute(bound_operations, num_qubits, num_clbits)
+```
+
+`validate_parameters(template, mapping)` 先完整校验映射：参数必须齐全、不能有多余键、值必须是有限数值。绑定生成全新的常量操作列表，模板和调用方传入的映射都不会被修改。常数电路仍直接使用 `run`；向 `run` 传入参数化角度会抛出 `CircuitValidationError`。测量、反馈条件、reset 和 PHASE_FLIP 噪声在绑定后原样保留。
+
+## 能量目标与后选
+
+`energy(num_qubits, num_clbits, operations, hamiltonian, parameter_values=None, postselection=None)` 确定性计算能量期望，不抽样。哈密顿量是实系数 Pauli 串之和，每项写作 `(coeff, "IXYZ...")` 或 `{"coeff": coeff, "pauli": "IXYZ..."}`：
+
+- 每个 Pauli 串长度必须恰好等于量子位数，字符只允许 `I`、`X`、`Y`、`Z`。
+- 字符串右端对应量子位 0，左端对应最高量子位；例如 2 量子位的 `"IZ"` 表示 Z 作用在量子位 0。
+- 系数必须有限。非法目标抛出 `HamiltonianValidationError`。
+
+`postselection` 是经典位到要求取值（0 或 1）的映射，例如 `{0: 0}` 表示只保留末尾经典寄存器中 c0=0 的分支；未指定时使用全部分支。返回的 `EnergyResult` 包含 `energy`（后选时即条件能量）、`conditional_energy`、`success_probability` 和所用的 `postselection`。成功概率不超过 `1e-12` 时抛出 `PostselectionError`，不会返回伪造的条件能量。
+
+## 精确梯度
+
+`gradient(num_qubits, num_clbits, operations, hamiltonian, parameter_values, postselection=None)` 返回每个命名参数的精确梯度字典。实现对每个参数化 RZ 门独立使用 π/2 参数移位规则，然后按各自身的缩放（含负数）求和，因此共享参数、负缩放和条件门都被正确处理。条件能量是比值 N/P，分子 N（选中分支的 Pauli 期望加权和）与归一化概率 P 分别移位求导，后选能量的归一化项也被精确计入。该方法不是有限差分，也不依赖抽样。移位后的电路即使某些后选分支概率为零，也只按未归一化量组合，不会让基点有效的梯度失败。
+
+## 确定性局部训练
+
+`minimize_energy(num_qubits, num_clbits, operations, hamiltonian, initial_parameters, max_iterations, gradient_tolerance, postselection=None, initial_step_size=0.5)` 执行确定性梯度下降：
+
+1. 在当前点计算精确能量、成功概率和梯度。
+2. 沿负梯度方向试探；能量上升或试探点后选失败时将步长乘以 0.5 后重试。
+3. 接受不增（带 1e-12 相对松弛）能量的点；成功使用完整步长时下一轮允许放大步长，但不超过 `initial_step_size`。
+4. 若步长缩小到 1e-12 以下仍无有效试探，保留最后一个有效点并停止。
+
+返回 `TrainingResult`：`parameters`、`energy`、`success_probability`、`gradient`、`history`（每个被接受迭代的参数、能量、概率、梯度范数和实际步长）、`iterations` 和 `stop_reason`。停止原因取值：
+
+- `gradient_tolerance`：梯度范数达到容差，是唯一的收敛（`converged` 为 True）。
+- `max_iterations`：迭代预算耗尽，不是收敛。
+- `step_size_underflow`：试探全部失败后的停滞，不是收敛；返回最后有效点。
+
+这是局部最小化，不承诺全局最优。初值点后选概率不超过 1e-12 时立即抛出 `PostselectionError`；非法迭代数、容差或步长抛出 `TrainingError`。
+
 ## 校验
 
 越界量子位或经典位、相同的 CX 控制位和目标位、未知操作、非有限 RZ 角度、非法概率和非法反馈条件都会抛出 `CircuitValidationError`。错误消息包含从 0 开始的操作位置，例如 `operation 3`。校验在分配量子态前完成；SDK 不会返回部分执行结果，也不会修改调用方传入的数据。
 
 ## 数值容差
 
-所有矩阵使用 NumPy `complex128`。内部比较用于剪除严格为 0 的概率分支；测试默认使用 `1e-10` 的绝对和相对容差。最多 6 个量子位时密度矩阵为 64×64，确定性演化开销可控。
+所有矩阵使用 NumPy `complex128`。内部比较用于剪除严格为 0 的概率分支；测试默认使用 `1e-10` 的绝对和相对容差。最多 6 个量子位时密度矩阵为 64×64，确定性演化开销可控。后选判定阈值固定为 1e-12。
 
 ## 测试与示例
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
 PYTHONPATH=src .venv/bin/python examples/feedback_noise.py
+PYTHONPATH=src .venv/bin/python examples/variational_training.py
 ```
 
-示例包含 Bell 纠缠、相位翻转噪声、测量以及基于测量结果的条件 X 门。
+`feedback_noise.py` 包含 Bell 纠缠、相位翻转噪声、测量以及基于测量结果的条件 X 门。`variational_training.py` 演示一个共享参数（含负缩放）同时驱动两个 RZ 门，在测量反馈和 c0=0 后选下训练条件能量并打印真实停止原因。
+
